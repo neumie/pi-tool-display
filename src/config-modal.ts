@@ -43,7 +43,7 @@ function summarizeConfig(config: ToolDisplayConfig, capabilities: ToolDisplayCap
 	const parts = [
 		`preset=${preset}`,
 		`owners={${toolOwnershipSummary(config)}}`,
-		`userBox=${toOnOff(config.enableNativeUserMessageBox)}`,
+		`userMessage=${config.enableNativeUserMessageBox ? config.userMessageStyle : "off"}`,
 		`read=${config.readOutputMode}`,
 		`search=${config.searchOutputMode}`,
 		`preview=${config.previewLines}`,
@@ -291,16 +291,16 @@ function buildInspectorSettings(
 		},
 		{
 			id: "enableNativeUserMessageBox",
-			label: "Native user message box",
+			label: "Custom user messages",
 			currentValue: toOnOff(config.enableNativeUserMessageBox),
 			values: ["on", "off"],
-			inspectorTitle: "Native User Message Box",
+			inspectorTitle: "Custom User Messages",
 			inspectorSummary: [
-				"Toggles the bordered native renderer used for user prompts inside the Pi transcript.",
-				"Keep it on when you want clearer message separation, or turn it off to fall back to Pi's default user message rendering.",
+				"Toggles the extension's presentation for user prompts inside the Pi transcript.",
+				"Turn it off to fall back to Pi's default user message rendering.",
 			],
 			inspectorOptions: [
-				"on — bordered native user prompt box",
+				"on — use the selected user message style",
 				"off — default Pi prompt rendering",
 			],
 			inspectorAdvanced: buildAdvancedNotes(config, capabilities, [
@@ -308,6 +308,23 @@ function buildInspectorSettings(
 			]),
 			inspectorPath: configPath,
 			searchTerms: ["user", "message", "box", "prompt", "native"],
+		},
+		{
+			id: "userMessageStyle",
+			label: "User message style",
+			currentValue: config.userMessageStyle,
+			values: ["bordered", "label-only"],
+			inspectorTitle: "User Message Style",
+			inspectorSummary: [
+				"Controls how submitted user prompts are distinguished in the transcript.",
+				"Label-only preserves Pi's native message card while adding a compact user label without an outline.",
+			],
+			inspectorOptions: [
+				"bordered — labeled prompt with a complete outline",
+				"label-only — native prompt card with a label and no outline",
+			],
+			inspectorPath: configPath,
+			searchTerms: ["user", "message", "label", "border", "outline"],
 		},
 	);
 
@@ -329,6 +346,10 @@ function applySetting(config: ToolDisplayConfig, id: string, value: string): Too
 				...config,
 				enableNativeUserMessageBox: value === "on",
 			};
+		case "userMessageStyle":
+			return value === "bordered" || value === "label-only"
+				? { ...config, userMessageStyle: value }
+				: config;
 		case "readOutputMode":
 			return {
 				...config,

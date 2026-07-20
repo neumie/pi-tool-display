@@ -20,11 +20,13 @@ function getUserMessagePrototype(): PatchableUserMessagePrototype {
 function patchUserMessageRender(
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
+  getStyle: () => ToolDisplayConfig["userMessageStyle"],
 ): void {
   patchNativeUserMessagePrototype(
     getUserMessagePrototype(),
     getTheme,
     isEnabled,
+    getStyle,
   );
 }
 
@@ -45,8 +47,10 @@ export default function registerNativeUserMessageBox(
 
   const getTheme = (): UserMessageTheme | undefined => activeTheme;
   const isEnabled = (): boolean => getConfig().enableNativeUserMessageBox;
+  const getStyle = (): ToolDisplayConfig["userMessageStyle"] =>
+    getConfig().userMessageStyle;
 
-  patchUserMessageRender(getTheme, isEnabled);
+  patchUserMessageRender(getTheme, isEnabled, getStyle);
 
   onReloadShutdown(pi, () => {
     restoreUserMessageRender();
@@ -55,12 +59,12 @@ export default function registerNativeUserMessageBox(
   });
 
   pi.on("before_agent_start", async () => {
-    patchUserMessageRender(getTheme, isEnabled);
+    patchUserMessageRender(getTheme, isEnabled, getStyle);
   });
 
   pi.on("session_start", async (_event, ctx) => {
     activeTheme = ctx?.ui?.theme as unknown as UserMessageTheme;
-    patchUserMessageRender(getTheme, isEnabled);
+    patchUserMessageRender(getTheme, isEnabled, getStyle);
   });
 
 }

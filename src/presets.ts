@@ -1,5 +1,5 @@
 import { cloneCustomToolOverrides } from "./config-store.js";
-import { DEFAULT_TOOL_DISPLAY_CONFIG, type CustomToolOverrideConfig, type ToolDisplayConfig } from "./types.js";
+import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "./types.js";
 
 export const TOOL_DISPLAY_PRESETS = ["opencode", "balanced", "verbose"] as const;
 export type ToolDisplayPreset = (typeof TOOL_DISPLAY_PRESETS)[number];
@@ -64,6 +64,7 @@ function configsEqual(a: ToolDisplayConfig, b: ToolDisplayConfig): boolean {
 		toolOverrideOwnershipEqual(a, b) &&
 		customToolOverridesEqual(a, b) &&
 		a.enableNativeUserMessageBox === b.enableNativeUserMessageBox &&
+		a.userMessageStyle === b.userMessageStyle &&
 		a.readOutputMode === b.readOutputMode &&
 		a.searchOutputMode === b.searchOutputMode &&
 		a.mcpOutputMode === b.mcpOutputMode &&

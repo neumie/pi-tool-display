@@ -59,6 +59,7 @@ test("getToolDisplayPresetConfig for all presets preserves unchanged fields from
 	for (const preset of TOOL_DISPLAY_PRESETS) {
 		const config = getToolDisplayPresetConfig(preset);
 		assert.equal(config.enableNativeUserMessageBox, DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox);
+		assert.equal(config.userMessageStyle, DEFAULT_TOOL_DISPLAY_CONFIG.userMessageStyle);
 		assert.equal(config.diffWordWrap, DEFAULT_TOOL_DISPLAY_CONFIG.diffWordWrap);
 		assert.equal(config.showTruncationHints, DEFAULT_TOOL_DISPLAY_CONFIG.showTruncationHints);
 		assert.equal(config.showRtkCompactionHints, DEFAULT_TOOL_DISPLAY_CONFIG.showRtkCompactionHints);
@@ -93,6 +94,12 @@ test("detectToolDisplayPreset returns 'custom' when config differs by one field"
 test("detectToolDisplayPreset returns 'custom' when bashCollapsedLines differs", () => {
 	const verbose = getToolDisplayPresetConfig("verbose");
 	const modified = { ...verbose, bashCollapsedLines: verbose.bashCollapsedLines + 5 };
+	assert.equal(detectToolDisplayPreset(modified), "custom");
+});
+
+test("detectToolDisplayPreset returns 'custom' when user message style differs", () => {
+	const opencode = getToolDisplayPresetConfig("opencode");
+	const modified = { ...opencode, userMessageStyle: "label-only" as const };
 	assert.equal(detectToolDisplayPreset(modified), "custom");
 });
 

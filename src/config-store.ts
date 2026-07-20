@@ -16,6 +16,7 @@ import {
 	READ_OUTPUT_MODES,
 	SEARCH_OUTPUT_MODES,
 	type ToolDisplayConfig,
+	USER_MESSAGE_STYLES,
 	type ToolOverrideOwnership,
 } from "./types.js";
 import { toRecord } from "./tool-metadata.js";
@@ -57,6 +58,12 @@ function toMcpOutputMode(value: unknown): ToolDisplayConfig["mcpOutputMode"] {
 	return MCP_OUTPUT_MODES.includes(value as ToolDisplayConfig["mcpOutputMode"])
 		? (value as ToolDisplayConfig["mcpOutputMode"])
 		: DEFAULT_TOOL_DISPLAY_CONFIG.mcpOutputMode;
+}
+
+function toUserMessageStyle(value: unknown): ToolDisplayConfig["userMessageStyle"] {
+	return USER_MESSAGE_STYLES.includes(value as ToolDisplayConfig["userMessageStyle"])
+		? (value as ToolDisplayConfig["userMessageStyle"])
+		: DEFAULT_TOOL_DISPLAY_CONFIG.userMessageStyle;
 }
 
 function toBashOutputMode(value: unknown): ToolDisplayConfig["bashOutputMode"] {
@@ -216,6 +223,7 @@ export function normalizeToolDisplayConfig(raw: unknown): ToolDisplayConfig {
 			source.enableNativeUserMessageBox,
 			DEFAULT_TOOL_DISPLAY_CONFIG.enableNativeUserMessageBox,
 		),
+		userMessageStyle: toUserMessageStyle(source.userMessageStyle),
 		readOutputMode: toReadOutputMode(source.readOutputMode),
 		searchOutputMode: toSearchOutputMode(source.searchOutputMode),
 		mcpOutputMode: toMcpOutputMode(source.mcpOutputMode),

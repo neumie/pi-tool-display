@@ -23,6 +23,7 @@
     }
   },
   "enableNativeUserMessageBox": true,
+  "userMessageStyle": "bordered",
   "readOutputMode": "hidden",
   "searchOutputMode": "hidden",
   "mcpOutputMode": "hidden",

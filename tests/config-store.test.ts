@@ -26,6 +26,7 @@ test("config normalization clamps invalid values and migrates legacy read overri
     readOutputMode: "invalid",
     searchOutputMode: "count",
     mcpOutputMode: "preview",
+    userMessageStyle: "outline-free",
     previewLines: 999,
     expandedPreviewMaxLines: -1,
     bashCollapsedLines: 999,
@@ -41,6 +42,7 @@ test("config normalization clamps invalid values and migrates legacy read overri
   assert.equal(config.readOutputMode, DEFAULT_TOOL_DISPLAY_CONFIG.readOutputMode);
   assert.equal(config.searchOutputMode, "count");
   assert.equal(config.mcpOutputMode, "preview");
+  assert.equal(config.userMessageStyle, DEFAULT_TOOL_DISPLAY_CONFIG.userMessageStyle);
   assert.equal(config.previewLines, 80);
   assert.equal(config.expandedPreviewMaxLines, 0);
   assert.equal(config.bashCollapsedLines, 80);
@@ -48,6 +50,11 @@ test("config normalization clamps invalid values and migrates legacy read overri
   assert.equal(config.diffSplitMinWidth, 70);
   assert.equal(config.diffCollapsedLines, 240);
   assert.equal(config.diffWordWrap, false);
+});
+
+test("config normalization accepts the label-only user message style", () => {
+  const config = normalizeToolDisplayConfig({ userMessageStyle: "label-only" });
+  assert.equal(config.userMessageStyle, "label-only");
 });
 
 test("config load reports parse errors and falls back to defaults", () => {

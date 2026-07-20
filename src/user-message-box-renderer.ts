@@ -15,6 +15,7 @@ import {
 } from "./user-message-box-markdown.js";
 
 export type { PatchableUserMessagePrototype } from "./user-message-box-patch.js";
+import type { UserMessageStyle } from "./types.js";
 import {
   addUserMessageVerticalPadding,
   applyUserMessageBackground,
@@ -54,9 +55,10 @@ interface CachedUserMessageBodyLines {
 
 const MIN_BORDER_WIDTH = 8;
 const TITLE_TEXT = " user ";
+const LABEL_TEXT = "user";
 const CONTENT_HORIZONTAL_PADDING_COLUMNS = 1;
 const USER_MESSAGE_TOP_MARGIN_LINES = 1;
-const USER_MESSAGE_PATCH_VERSION = 8;
+const USER_MESSAGE_PATCH_VERSION = 9;
 const MAX_USER_MESSAGE_MARKDOWN_TEXT_LENGTH = 100_000;
 const MAX_USER_MESSAGE_MARKDOWN_LINE_COUNT = 2_000;
 
@@ -94,6 +96,19 @@ function colorUserBackground(
   text: string,
 ): string {
   return applyUserMessageBackground(theme, text);
+}
+
+function buildUserLabel(
+  totalWidth: number,
+  theme: UserMessageTheme | undefined,
+): string {
+  const indent = totalWidth > 1 ? " " : "";
+  const label = truncateToWidth(
+    LABEL_TEXT,
+    Math.max(0, totalWidth - visibleWidth(indent)),
+    "",
+  );
+  return `${indent}${colorTitle(theme, label)}`;
 }
 
 function computeBoxInnerWidth(totalWidth: number): number {
@@ -354,6 +369,7 @@ export function patchNativeUserMessagePrototype(
   prototype: PatchableUserMessagePrototype,
   getTheme: () => UserMessageTheme | undefined,
   isEnabled: () => boolean,
+  getStyle: () => UserMessageStyle = () => "bordered",
 ): void {
   const finalOutputCache = new WeakMap<object, CachedUserMessageFinalOutput>();
   const originalBodyLineCache = new WeakMap<object, CachedUserMessageBodyLines>();
@@ -362,9 +378,24 @@ export function patchNativeUserMessagePrototype(
     prototype,
     USER_MESSAGE_PATCH_VERSION,
     (originalRender) =>
-      function renderWithNativeUserBorder(width: number): string[] {
+      function renderWithNativeUserPresentation(width: number): string[] {
         const safeWidth = Math.max(0, Math.floor(width));
-        if (!isEnabled() || safeWidth < MIN_BORDER_WIDTH) {
+        if (!isEnabled()) {
+          return originalRender.call(this, safeWidth) as string[];
+        }
+
+        const theme = getTheme();
+        if (getStyle() === "label-only") {
+          const nativeLines = originalRender.call(this, safeWidth) as string[];
+          if (nativeLines.length === 0) return nativeLines;
+          return [
+            ...Array.from({ length: USER_MESSAGE_TOP_MARGIN_LINES }, () => ""),
+            buildUserLabel(safeWidth, theme),
+            ...nativeLines,
+          ];
+        }
+
+        if (safeWidth < MIN_BORDER_WIDTH) {
           return originalRender.call(this, safeWidth) as string[];
         }
 
@@ -376,7 +407,6 @@ export function patchNativeUserMessagePrototype(
           return originalRender.call(this, safeWidth) as string[];
         }
 
-        const theme = getTheme();
         if (canCacheFinalOutput) {
           const cached = finalOutputCache.get(this as object);
           if (cached && hasSameFinalOutputState(cached, safeWidth, theme, markdownState)) {

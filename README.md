@@ -32,7 +32,7 @@ OpenCode-style tool rendering for the [Pi coding agent](https://github.com/mario
 - **Hashline-anchor diff gutters** that preserve `LINE#HASH` labels from anchored read/edit output when those lines are rendered in diffs
 - **Three presets**: `opencode`, `balanced`, and `verbose`
 - **Thinking labels** during streaming and final message rendering, with context sanitization to avoid leaking presentation labels back into future model turns
-- **Optional native user message box** with markdown-aware rendering and safer ANSI/background handling
+- **Optional user message presentation** with bordered and label-only styles, markdown-aware rendering, and safer ANSI/background handling
 - **Per-tool ownership toggles** so this extension can coexist with other renderer extensions
 - **Capability-aware settings** that keep MCP and RTK-specific controls aligned with the current environment
 - **Adapter API for renderer consumers** through the `pi-tool-display/tool-display-api-consumer` subpath export
@@ -144,7 +144,8 @@ A starter template is included at `config/config.example.json`.
 | `debug` | boolean | `false` | Opt-in file logging for extension diagnostics; missing values are treated as `false` |
 | `registerToolOverrides` | object | all `true` | Built-in tool ownership flags |
 | `customToolOverrides` | object | `{}` | Explicit opt-in rendering rules for non-built-in extension tools |
-| `enableNativeUserMessageBox` | boolean | `true` | Enable bordered user prompt rendering |
+| `enableNativeUserMessageBox` | boolean | `true` | Enable custom user prompt presentation |
+| `userMessageStyle` | string | `"bordered"` | `bordered` or `label-only` |
 | `readOutputMode` | string | `"hidden"` | `hidden`, `summary`, or `preview` |
 | `searchOutputMode` | string | `"hidden"` | `hidden`, `count`, or `preview` |
 | `mcpOutputMode` | string | `"hidden"` | `hidden`, `summary`, or `preview` |
@@ -259,6 +260,7 @@ Notes:
     }
   },
   "enableNativeUserMessageBox": true,
+  "userMessageStyle": "label-only",
   "readOutputMode": "summary",
   "searchOutputMode": "count",
   "mcpOutputMode": "summary",
@@ -298,9 +300,9 @@ When content is available, `write` call summaries include line count and byte si
 
 Thinking blocks are labeled during streaming and on final messages. Before the next model turn, the extension sanitizes those presentation labels out of the stored assistant context so they do not accumulate or pollute future prompts.
 
-### Native user message box
+### User message presentation
 
-When enabled, user prompts render inside a bordered box using Pi's native user message component. The renderer preserves markdown content more safely and normalizes ANSI/background handling to avoid odd nested background artifacts.
+When enabled, `bordered` renders user prompts inside a complete labeled outline. The `label-only` style keeps Pi's native prompt card and adds a compact `user` label without an outline. The bordered renderer preserves markdown content more safely and normalizes ANSI/background handling to avoid odd nested background artifacts.
 
 ## Capability detection
 
