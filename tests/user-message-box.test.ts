@@ -20,6 +20,9 @@ import {
   type UserMessageBackgroundTheme,
 } from "../src/user-message-box-utils.ts";
 
+const ANSI_SGR = /\x1b\[[0-9;]*m/g;
+const INPUT_MATCHING_BACKGROUND = "\x1b[48;2;45;45;45m";
+
 // ===========================================================================
 // Issue #10: OSC 133 prompt marker stripping
 // Each variant: BEL-terminated (\x07) and ST-terminated (\x1b\\)
@@ -709,8 +712,13 @@ test("nativeRender starts with its border without duplicating Pi's outer spacer"
   assert.ok(rendered.some((l) => l.includes("╰")), "has bottom border");
 });
 
-test("label-only user messages put the label and spacer inside the native card", () => {
-  const nativeLines = ["native card top", "native message", "native card bottom"];
+test("label-only user messages match the charcoal input and keep content inside the native card", () => {
+  const oldBackground = "\x1b[48;2;52;53;65m";
+  const nativeLines = [
+    `${oldBackground}native card top\x1b[49m`,
+    `${oldBackground}native message\x1b[49m`,
+    `${oldBackground}native card bottom\x1b[49m`,
+  ];
   const prototype: PatchableUserMessagePrototype = {
     render: () => nativeLines,
   };
@@ -722,12 +730,18 @@ test("label-only user messages put the label and spacer inside the native card",
   );
 
   const rendered = prototype.render(40);
-  assert.equal(rendered[0], nativeLines[0], "keeps native top padding first");
-  assert.equal(rendered[1]?.trim(), "user", "puts the label inside the card");
-  assert.equal(rendered[1]?.length, 40, "fills the native card width");
-  assert.equal(rendered[2], " ".repeat(40), "separates label from content inside the card");
-  assert.deepEqual(rendered.slice(3), nativeLines.slice(1));
-  assert.equal(rendered.some((line) => /[╭╮╰╯│─]/.test(line)), false);
+  const plain = rendered.map((line) => line.replace(ANSI_SGR, ""));
+  assert.ok(rendered.every((line) => line.startsWith(INPUT_MATCHING_BACKGROUND)));
+  assert.ok(rendered.every((line) => !line.includes(oldBackground)));
+  assert.ok(plain.every((line) => line.length === 40));
+  assert.equal(plain[0]?.trimEnd(), "native card top", "keeps native top padding first");
+  assert.equal(plain[1]?.trim(), "user", "puts the label inside the card");
+  assert.equal(plain[2], " ".repeat(40), "separates label from content inside the card");
+  assert.deepEqual(plain.slice(3).map((line) => line.trimEnd()), [
+    "native message",
+    "native card bottom",
+  ]);
+  assert.equal(plain.some((line) => /[╭╮╰╯│─]/.test(line)), false);
 });
 
 test("nativeRender prototype without render function does not crash", () => {

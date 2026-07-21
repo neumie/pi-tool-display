@@ -57,7 +57,11 @@ const MIN_BORDER_WIDTH = 8;
 const TITLE_TEXT = " user ";
 const LABEL_TEXT = "user";
 const CONTENT_HORIZONTAL_PADDING_COLUMNS = 1;
-const USER_MESSAGE_PATCH_VERSION = 10;
+const LABEL_ONLY_BACKGROUND_ANSI = "\x1b[48;2;45;45;45m";
+const LABEL_ONLY_BACKGROUND_THEME: UserMessageBackgroundTheme = {
+  getBgAnsi: () => LABEL_ONLY_BACKGROUND_ANSI,
+};
+const USER_MESSAGE_PATCH_VERSION = 11;
 const MAX_USER_MESSAGE_MARKDOWN_TEXT_LENGTH = 100_000;
 const MAX_USER_MESSAGE_MARKDOWN_LINE_COUNT = 2_000;
 
@@ -124,6 +128,14 @@ function buildUserCardSpacer(
   theme: UserMessageTheme | undefined,
 ): string {
   return colorUserBackground(theme, " ".repeat(totalWidth));
+}
+
+function colorLabelOnlyRow(text: string, totalWidth: number): string {
+  const padding = " ".repeat(Math.max(0, totalWidth - visibleWidth(text)));
+  return applyUserMessageBackground(
+    LABEL_ONLY_BACKGROUND_THEME,
+    `${text}${padding}`,
+  );
 }
 
 function computeBoxInnerWidth(totalWidth: number): number {
@@ -408,7 +420,7 @@ export function patchNativeUserMessagePrototype(
             buildUserLabelRow(safeWidth, theme),
             buildUserCardSpacer(safeWidth, theme),
             ...nativeLines.slice(1),
-          ];
+          ].map((line) => colorLabelOnlyRow(line, safeWidth));
         }
 
         if (safeWidth < MIN_BORDER_WIDTH) {
