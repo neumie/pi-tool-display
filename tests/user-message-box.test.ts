@@ -698,14 +698,13 @@ test("nativeRender isEnabled false bypasses native rendering regardless of width
   assert.equal(capturedWidth, 100);
 });
 
-test("nativeRender produces top margin spacer and border when enabled and width >= 8", () => {
+test("nativeRender starts with its border without duplicating Pi's outer spacer", () => {
   const prototype: PatchableUserMessagePrototype = {
     render: () => ["user message body"],
   };
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
   const rendered = prototype.render(40);
-  assert.equal(rendered[0], "", "first line is top margin spacer");
-  assert.ok(rendered[1]?.includes("╭"), "second line has top border");
+  assert.ok(rendered[0]?.includes("╭"), "first line has top border");
   assert.ok(rendered.some((l) => l.includes("│")), "has content border lines");
   assert.ok(rendered.some((l) => l.includes("╰")), "has bottom border");
 });
@@ -723,12 +722,11 @@ test("label-only user messages put the label and spacer inside the native card",
   );
 
   const rendered = prototype.render(40);
-  assert.equal(rendered[0], "", "keeps the outer card margin");
-  assert.equal(rendered[1], nativeLines[0], "keeps native top padding first");
-  assert.equal(rendered[2]?.trim(), "user", "puts the label inside the card");
-  assert.equal(rendered[2]?.length, 40, "fills the native card width");
-  assert.equal(rendered[3], " ".repeat(40), "separates label from content inside the card");
-  assert.deepEqual(rendered.slice(4), nativeLines.slice(1));
+  assert.equal(rendered[0], nativeLines[0], "keeps native top padding first");
+  assert.equal(rendered[1]?.trim(), "user", "puts the label inside the card");
+  assert.equal(rendered[1]?.length, 40, "fills the native card width");
+  assert.equal(rendered[2], " ".repeat(40), "separates label from content inside the card");
+  assert.deepEqual(rendered.slice(3), nativeLines.slice(1));
   assert.equal(rendered.some((line) => /[╭╮╰╯│─]/.test(line)), false);
 });
 
@@ -919,11 +917,8 @@ test("nativeRender builds correct box structure with all required line types", (
   patchNativeUserMessagePrototype(prototype, () => undefined, () => true);
 
   const rendered = prototype.render(30);
-  // Structure: [spacer, top-border, padding, content-line, padding, content-line, padding, bottom-border]
-  // With vertical padding of 1, each content line gets padding on both sides:
-  // But actually, addUserMessageVerticalPadding adds 1 padding before and after ALL content:
-  // So: spacer(blank), top-border, blank, content1, content2, blank, bottom-border
-  // = 7 lines total
+  // Structure: [top-border, padding, content1, content2, padding, bottom-border].
+  // Pi itself owns the outer spacer between transcript messages.
   assert.ok(rendered.length >= 5);
   assert.equal(rendered.filter((l) => l.includes("│")).length, 4); // 2 content + 2 padding
   assert.equal(rendered.filter((l) => l.includes("╭") || l.includes("╰")).length, 2);

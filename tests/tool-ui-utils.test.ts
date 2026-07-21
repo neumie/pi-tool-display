@@ -264,7 +264,7 @@ test("user message renderer adds one top and bottom padding row inside the box",
   assert.deepEqual(addUserMessageVerticalPadding(["Line 1", "Line 2"]), ["", "Line 1", "Line 2", ""]);
 });
 
-test("native user message renderer inserts one blank spacer line before the box", () => {
+test("native user message renderer does not duplicate Pi's outer spacer", () => {
   const prototype: PatchableUserMessagePrototype = {
     render: () => ["Original user content"],
   };
@@ -273,8 +273,7 @@ test("native user message renderer inserts one blank spacer line before the box"
 
   const rendered = prototype.render(24);
 
-  assert.equal(rendered[0], "");
-  assert.match(rendered[1] ?? "", /^╭/);
+  assert.match(rendered[0] ?? "", /^╭/);
 });
 
 test("native user message renderer wraps body at the padded content width", () => {

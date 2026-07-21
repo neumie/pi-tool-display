@@ -57,8 +57,7 @@ const MIN_BORDER_WIDTH = 8;
 const TITLE_TEXT = " user ";
 const LABEL_TEXT = "user";
 const CONTENT_HORIZONTAL_PADDING_COLUMNS = 1;
-const USER_MESSAGE_TOP_MARGIN_LINES = 1;
-const USER_MESSAGE_PATCH_VERSION = 9;
+const USER_MESSAGE_PATCH_VERSION = 10;
 const MAX_USER_MESSAGE_MARKDOWN_TEXT_LENGTH = 100_000;
 const MAX_USER_MESSAGE_MARKDOWN_LINE_COUNT = 2_000;
 
@@ -405,7 +404,6 @@ export function patchNativeUserMessagePrototype(
           const nativeLines = originalRender.call(this, safeWidth) as string[];
           if (nativeLines.length === 0) return nativeLines;
           return [
-            ...Array.from({ length: USER_MESSAGE_TOP_MARGIN_LINES }, () => ""),
             nativeLines[0] ?? "",
             buildUserLabelRow(safeWidth, theme),
             buildUserCardSpacer(safeWidth, theme),
@@ -446,7 +444,6 @@ export function patchNativeUserMessagePrototype(
         );
 
         const output = [
-          ...Array.from({ length: USER_MESSAGE_TOP_MARGIN_LINES }, () => ""),
           buildTopBorder(safeWidth, theme),
           ...paddedContentLines.map((renderLine) =>
             wrapContentLine(renderLine, safeWidth, theme),
