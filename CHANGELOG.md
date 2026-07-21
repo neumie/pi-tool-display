@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Added a `label-only` user message style that retains a compact `user` label above Pi's native transcript card without drawing an outline.
+- Added a `label-only` user message style that places a compact `user` label inside Pi's native transcript card without drawing an outline.
 - Added `preserveCallRenderer` for custom tool overrides that should retain a useful native call header while compacting or hiding only result output.
 
 ### Fixed

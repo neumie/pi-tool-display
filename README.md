@@ -302,7 +302,7 @@ Thinking blocks are labeled during streaming and on final messages. Before the n
 
 ### User message presentation
 
-When enabled, `bordered` renders user prompts inside a complete labeled outline. The `label-only` style keeps Pi's native prompt card and adds a compact `user` label without an outline. The bordered renderer preserves markdown content more safely and normalizes ANSI/background handling to avoid odd nested background artifacts.
+When enabled, `bordered` renders user prompts inside a complete labeled outline. The `label-only` style keeps Pi's native prompt card and places a compact `user` label inside it without an outline. The bordered renderer preserves markdown content more safely and normalizes ANSI/background handling to avoid odd nested background artifacts.
 
 ## Capability detection
 

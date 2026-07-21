@@ -710,7 +710,7 @@ test("nativeRender produces top margin spacer and border when enabled and width 
   assert.ok(rendered.some((l) => l.includes("╰")), "has bottom border");
 });
 
-test("label-only user messages keep the native card and omit border glyphs", () => {
+test("label-only user messages put the label and spacer inside the native card", () => {
   const nativeLines = ["native card top", "native message", "native card bottom"];
   const prototype: PatchableUserMessagePrototype = {
     render: () => nativeLines,
@@ -723,7 +723,12 @@ test("label-only user messages keep the native card and omit border glyphs", () 
   );
 
   const rendered = prototype.render(40);
-  assert.deepEqual(rendered, ["", " user", ...nativeLines]);
+  assert.equal(rendered[0], "", "keeps the outer card margin");
+  assert.equal(rendered[1], nativeLines[0], "keeps native top padding first");
+  assert.equal(rendered[2]?.trim(), "user", "puts the label inside the card");
+  assert.equal(rendered[2]?.length, 40, "fills the native card width");
+  assert.equal(rendered[3], " ".repeat(40), "separates label from content inside the card");
+  assert.deepEqual(rendered.slice(4), nativeLines.slice(1));
   assert.equal(rendered.some((line) => /[╭╮╰╯│─]/.test(line)), false);
 });
 

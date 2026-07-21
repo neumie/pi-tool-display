@@ -111,6 +111,22 @@ function buildUserLabel(
   return `${indent}${colorTitle(theme, label)}`;
 }
 
+function buildUserLabelRow(
+  totalWidth: number,
+  theme: UserMessageTheme | undefined,
+): string {
+  const label = buildUserLabel(totalWidth, theme);
+  const padding = " ".repeat(Math.max(0, totalWidth - visibleWidth(label)));
+  return colorUserBackground(theme, `${label}${padding}`);
+}
+
+function buildUserCardSpacer(
+  totalWidth: number,
+  theme: UserMessageTheme | undefined,
+): string {
+  return colorUserBackground(theme, " ".repeat(totalWidth));
+}
+
 function computeBoxInnerWidth(totalWidth: number): number {
   return Math.max(0, totalWidth - 2);
 }
@@ -390,8 +406,10 @@ export function patchNativeUserMessagePrototype(
           if (nativeLines.length === 0) return nativeLines;
           return [
             ...Array.from({ length: USER_MESSAGE_TOP_MARGIN_LINES }, () => ""),
-            buildUserLabel(safeWidth, theme),
-            ...nativeLines,
+            nativeLines[0] ?? "",
+            buildUserLabelRow(safeWidth, theme),
+            buildUserCardSpacer(safeWidth, theme),
+            ...nativeLines.slice(1),
           ];
         }
 
