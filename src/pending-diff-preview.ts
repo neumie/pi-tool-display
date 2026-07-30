@@ -1,6 +1,16 @@
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 export interface PendingDiffPreviewData {
   filePath: string;
@@ -79,38 +89,72 @@ function safeRealpath(path: string): string {
   }
 }
 
-function resolveWorkspaceReadPath(cwd: string, rawPath: string): { resolvedPath: string; error?: string } {
-  const workspacePath = safeRealpath(cwd);
-  const resolvedPath = resolvePreviewPath(cwd, rawPath);
+type CanonicalPathResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string };
 
-  if (!isWithinWorkspace(workspacePath, resolvedPath)) {
-    return {
-      resolvedPath,
-      error: "Preview unavailable because the target path is outside the current workspace.",
-    };
-  }
+function canonicalizePotentialPath(path: string): CanonicalPathResult {
+  let candidate = resolve(path);
+  const missingSegments: string[] = [];
+  const visited = new Set<string>();
 
-  if (!existsSync(resolvedPath)) {
-    return { resolvedPath };
-  }
-
-  try {
-    const targetPath = realpathSync(resolvedPath);
-    if (!isWithinWorkspace(workspacePath, targetPath)) {
-      return {
-        resolvedPath,
-        error: "Preview unavailable because the target path resolves outside the current workspace.",
-      };
+  for (let depth = 0; depth < 64; depth++) {
+    if (visited.has(candidate)) {
+      return { ok: false, error: `Unable to resolve '${path}': symbolic link cycle detected` };
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    visited.add(candidate);
+
+    try {
+      return { ok: true, path: resolve(realpathSync(candidate), ...missingSegments) };
+    } catch {
+      try {
+        if (lstatSync(candidate).isSymbolicLink()) {
+          const link = readlinkSync(candidate);
+          candidate = isAbsolute(link) ? link : resolve(dirname(candidate), link);
+          continue;
+        }
+      } catch {
+        // Walk upward until an existing ancestor or symlink can be resolved.
+      }
+
+      const parent = dirname(candidate);
+      if (parent === candidate) {
+        return { ok: false, error: `Unable to resolve '${path}'` };
+      }
+      missingSegments.unshift(basename(candidate));
+      candidate = parent;
+    }
+  }
+
+  return { ok: false, error: `Unable to resolve '${path}': symbolic link depth exceeded` };
+}
+
+function resolveWorkspaceReadPath(
+  cwd: string,
+  rawPath: string,
+): { resolvedPath: string; exists: boolean; error?: string } {
+  const workspacePath = safeRealpath(cwd);
+  const requestedPath = resolvePreviewPath(cwd, rawPath);
+  const lexicalPath = resolvePreviewPath(workspacePath, rawPath);
+  const canonical = canonicalizePotentialPath(requestedPath);
+  if ("error" in canonical) {
+    return { resolvedPath: requestedPath, exists: false, error: canonical.error };
+  }
+
+  if (!isWithinWorkspace(workspacePath, canonical.path)) {
     return {
-      resolvedPath,
-      error: `Unable to resolve '${resolvedPath}': ${message}`,
+      resolvedPath: canonical.path,
+      exists: false,
+      error: isWithinWorkspace(workspacePath, lexicalPath)
+        ? "Preview unavailable because the target path resolves outside the current workspace."
+        : "Preview unavailable because the target path is outside the current workspace.",
     };
   }
 
-  return { resolvedPath };
+  return {
+    resolvedPath: canonical.path,
+    exists: existsSync(requestedPath),
+  };
 }
 
 export function readWorkspaceUtf8File(cwd: string, rawPath: string): FileReadResult {
@@ -118,13 +162,15 @@ export function readWorkspaceUtf8File(cwd: string, rawPath: string): FileReadRes
   if (safePath.error) {
     return { exists: false, error: safePath.error };
   }
-
-  if (!existsSync(safePath.resolvedPath)) {
+  if (!safePath.exists) {
     return { exists: false };
   }
 
+  let descriptor: number | undefined;
   try {
-    const stats = statSync(safePath.resolvedPath);
+    const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+    descriptor = openSync(safePath.resolvedPath, constants.O_RDONLY | noFollow);
+    const stats = fstatSync(descriptor);
     if (!stats.isFile()) {
       return {
         exists: true,
@@ -140,7 +186,7 @@ export function readWorkspaceUtf8File(cwd: string, rawPath: string): FileReadRes
 
     return {
       exists: true,
-      content: readFileSync(safePath.resolvedPath, "utf8"),
+      content: readFileSync(descriptor, "utf8"),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -148,6 +194,8 @@ export function readWorkspaceUtf8File(cwd: string, rawPath: string): FileReadRes
       exists: true,
       error: `Unable to read '${safePath.resolvedPath}': ${message}`,
     };
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 }
 
