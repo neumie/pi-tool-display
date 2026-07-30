@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   UserMessageComponent,
@@ -977,38 +979,32 @@ test("11: each tool override call clones parameters independently", () => {
 // ---------------------------------------------------------------------------
 
 test("12: config-store reloads config on fingerprint change between calls", () => {
-  const configUrl = new URL("../config.json", import.meta.url);
-  const originalConfigJson = readFileSync(configUrl, "utf8");
+  const configDir = mkdtempSync(join(tmpdir(), "pi-tool-display-config-"));
+  const configFile = join(configDir, "config.json");
 
   try {
-    const initialResult = loadToolDisplayConfig();
+    const initialSave = saveToolDisplayConfig(DEFAULT_TOOL_DISPLAY_CONFIG, configFile);
+    assert.ok(initialSave.success, "fixture config saved successfully");
 
-    // Config is cached, but if we change the file, fingerprint changes.
-    // Since local extension config can intentionally differ from defaults,
-    // verify loading returns a valid config and save/reload preserves it.
+    const initialResult = loadToolDisplayConfig(configFile);
     assert.ok(initialResult.config, "config loaded successfully");
-    assert.equal(typeof initialResult.config.readOutputMode, "string");
-    assert.equal(typeof initialResult.config.searchOutputMode, "string");
 
-    // saveToolDisplayConfig clears the cache, forcing a re-read
-    const saveResult = saveToolDisplayConfig(initialResult.config);
-    assert.ok(saveResult.success, "config saved successfully (cache cleared)");
+    const updatedReadOutputMode: ToolDisplayConfig["readOutputMode"] =
+      initialResult.config.readOutputMode === "preview" ? "summary" : "preview";
+    const updatedConfig: ToolDisplayConfig = {
+      ...initialResult.config,
+      readOutputMode: updatedReadOutputMode,
+    };
+    writeFileSync(configFile, `${JSON.stringify(updatedConfig, null, 2)}\n\n`, "utf8");
 
-    // After save, cache is cleared. Next load re-reads from disk.
-    const afterSaveResult = loadToolDisplayConfig();
-    assert.ok(afterSaveResult.config, "config re-loaded after cache clear");
+    const afterChangeResult = loadToolDisplayConfig(configFile);
     assert.equal(
-      afterSaveResult.config.readOutputMode,
-      initialResult.config.readOutputMode,
-      "re-loaded read output mode matches saved config",
-    );
-    assert.equal(
-      afterSaveResult.config.searchOutputMode,
-      initialResult.config.searchOutputMode,
-      "re-loaded search output mode matches saved config",
+      afterChangeResult.config.readOutputMode,
+      updatedConfig.readOutputMode,
+      "fingerprint change reloads the updated config",
     );
   } finally {
-    writeFileSync(configUrl, originalConfigJson, "utf8");
+    rmSync(configDir, { recursive: true, force: true });
   }
 });
 
