@@ -25,7 +25,7 @@ OpenCode-style tool rendering for the [Pi coding agent](https://github.com/mario
 
 - **Compact built-in tool rendering** for `read`, `grep`, `find`, `ls`, `bash`, `edit`, and `write`
 - **MCP-aware rendering** with hidden, summary, and preview modes
-- **Opt-in custom tool overrides** for noisy extension tools, defaulting to generic rendering unless `kind: "mcp"` is selected
+- **Opt-in custom tool overrides** for cooperating extension tools through the public consumer API, defaulting to generic rendering unless `kind: "mcp"` is selected
 - **Adaptive edit/write diffs** with split or unified layouts, syntax highlighting, inline emphasis, and narrow-pane width clamping
 - **Workspace-scoped projected pending edit/write previews** that show `pending edit`, `pending overwrite`, and `pending create` diffs while partial tool calls are still streaming
 - **Progressive collapsed diff hints** that shorten automatically on small terminal widths instead of overflowing
@@ -104,7 +104,14 @@ Other extensions can opt into `pi-tool-display` rendering without directly depen
 import { decorateToolForDisplay, decorateMcpToolForDisplay } from "pi-tool-display/tool-display-api-consumer";
 ```
 
-`decorateToolForDisplay(tool, adapter)` applies the runtime decoration immediately when `pi-tool-display` is loaded, or queues the decoration until the API becomes available. Use adapter options such as `kind: "read" | "edit" | "mcp" | "generic"` to select the renderer family; `decorateMcpToolForDisplay(tool)` is the shortcut for MCP-style tools.
+Each Pi extension receives its own `ExtensionAPI`, so a consumer must decorate its actual tool definition before registering it. `decorateToolForDisplay(tool, adapter)` returns the definition to register immediately when `pi-tool-display` is loaded, or queues decoration until the API becomes available when the consumer loads first. Use adapter options such as `kind: "read" | "edit" | "mcp" | "generic"` to select the renderer family; `decorateMcpToolForDisplay(tool)` is the shortcut for `decorateToolForDisplay(tool, { kind: "mcp", overrideExistingRenderers: true })` when MCP renderers should replace existing renderers.
+
+```ts
+const decorated = decorateToolForDisplay(tool);
+pi.registerTool(decorated);
+```
+
+`pi.getAllTools()` exposes metadata copies rather than live definitions, so `pi-tool-display` does not mutate another extension's registrations automatically.
 
 ## Presets
 
@@ -185,7 +192,7 @@ Set any entry to `false` if another extension should handle that tool instead.
 
 ### Custom tool overrides
 
-Use `customToolOverrides` when another extension registers a noisy top-level tool and you want `pi-tool-display` to render that tool's call/result output. Custom overrides are explicit opt-in only: unlisted or disabled tools keep their original renderers.
+Use `customToolOverrides` when a cooperating extension registers a noisy top-level tool and you want `pi-tool-display` to render that tool's call/result output. Each enabled entry registers a name-based adapter for the public consumer API; the owning extension must still call `decorateToolForDisplay(tool)` before `pi.registerTool`. Unlisted or disabled tools keep their original renderers.
 
 ```json
 {
@@ -230,7 +237,7 @@ Notes:
 - Built-in tool names (`read`, `grep`, `find`, `ls`, `bash`, `edit`, `write`) are ignored here; use `registerToolOverrides` for those.
 - `generic` call rendering shows the tool name and argument count, then compacts the result according to `outputMode`.
 - `mcp` call rendering understands MCP proxy-style arguments such as `tool`, `server`, `search`, `describe`, and `connect`.
-- Changes for already-registered tools take effect after `/reload`; tools registered later can be decorated as they register.
+- Changes for already-registered tools take effect after `/reload`; an owning extension must decorate each tool definition before registration (the consumer helper handles either extension load order).
 
 ### Example config
 
@@ -311,7 +318,7 @@ The extension checks the current Pi environment and adjusts behavior automatical
 - **MCP tooling unavailable at startup**: MCP settings can be hidden from the modal, but the configured MCP output mode is preserved because MCP tools may register later
 - **RTK optimizer unavailable**: RTK hint settings are hidden and RTK compaction hints are disabled
 
-This keeps the UI aligned with the current environment while still allowing dynamically registered MCP tools to be styled when they appear.
+This keeps the UI aligned with the current environment. Dynamically registered MCP or custom tools are styled when their owning extension opts in through the public consumer API.
 
 ## Troubleshooting
 
@@ -339,9 +346,9 @@ If your settings are not being applied:
 
 ### MCP or custom tool rendering not appearing
 
-MCP tools are decorated via `pi.registerTool` interception, so they are captured as soon as they register regardless of lifecycle event ordering. If MCP tools still appear unstyled, check that the tool's name or parameter schema matches one of the supported MCP detection heuristics (names containing `mcp`, `server:`, `ctx_`, or parameter schemas with `mcpServer`/`serverUrl`/`server_name`).
+The owning extension must call `decorateMcpToolForDisplay(tool)` before `pi.registerTool` when MCP renderers should replace existing renderers. The helper sets `overrideExistingRenderers: true`; use `decorateToolForDisplay(tool, { kind: "mcp" })` instead when existing renderers should be preserved. If MCP tools still appear unstyled, check that the extension uses the public consumer subpath and registers the returned definition.
 
-For non-MCP extension tools, or MCP-like tools that do not match the heuristics, add the exact tool name under `customToolOverrides` and run `/reload`. Use `kind: "generic"` for ordinary tools and `kind: "mcp"` for MCP proxy-style arguments.
+For non-MCP extension tools, add the exact tool name under `customToolOverrides`, import `decorateToolForDisplay`, register its returned definition, and run `/reload`. Use `kind: "generic"` for ordinary tools and `kind: "mcp"` for MCP proxy-style arguments.
 
 ### MCP or RTK settings missing
 

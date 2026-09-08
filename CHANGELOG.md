@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Match `label-only` user-message cards to the custom live input's neutral-charcoal background.
 - Avoid adding a second blank row above submitted user-message cards; Pi already owns their outer separation.
 - Decorate tools registered by later-loaded extensions before Pi snapshots their definitions.
-- Track decorated tool objects by identity and restore interception state across reloads and defensive double loads.
+- Track decorated tool objects by identity and restore decoration state across reloads and defensive double loads.
+- Restrict cross-extension tool decoration to the supported consumer API instead of mutating Pi metadata snapshots or intercepting another extension's registration.
 
 ## [0.5.0] - 2026-07-03
 
