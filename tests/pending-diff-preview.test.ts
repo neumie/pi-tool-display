@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -135,6 +136,41 @@ test(
       } finally {
         rmSync(outside, { recursive: true, force: true });
       }
+    });
+  },
+);
+
+test(
+  "pending preview rejects a FIFO without blocking the caller",
+  { skip: process.platform === "win32" },
+  () => {
+    withTempWorkspace("pi-tool-display-fifo-preview-", (workspace) => {
+      const fifoPath = join(workspace, "pending.fifo");
+      execFileSync("mkfifo", [fifoPath]);
+
+      const child = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx/esm",
+          "--input-type=module",
+          "-e",
+          'import { readWorkspaceUtf8File } from "./src/pending-diff-preview.ts"; const [cwd, path] = process.argv.slice(1); process.stdout.write(JSON.stringify(readWorkspaceUtf8File(cwd, path)));',
+          workspace,
+          fifoPath,
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          timeout: 1_000,
+        },
+      );
+
+      assert.equal(child.error, undefined, child.error?.message ?? child.stderr);
+      assert.equal(child.status, 0, child.stderr);
+      const result = JSON.parse(child.stdout) as { exists?: boolean; error?: string };
+      assert.equal(result.exists, true);
+      assert.match(result.error ?? "", /is not a regular file/);
     });
   },
 );

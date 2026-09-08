@@ -21,7 +21,7 @@ import {
   createWriteTool,
   formatSize,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
 import { resolvePiAgentDir } from "./agent-dir.js";
 import { renderBashCall } from "./bash-display.js";
 import { logToolDisplayDebug } from "./debug-logger.js";
@@ -54,7 +54,7 @@ import {
   toRecord,
 } from "./tool-metadata.js";
 import { BUILT_IN_TOOL_OVERRIDE_NAMES } from "./types.js";
-import { toCustomToolOverrideKind, toCustomToolOutputMode, normalizeCustomToolOverrideEntry } from "./config-store.js";
+import { normalizeCustomToolOverrideEntry } from "./config-store.js";
 import type {
   BuiltInToolOverrideName,
   CustomToolOverrideConfig,
@@ -147,7 +147,6 @@ const WRITE_PENDING_PREVIEW_STATE_KEY = "__piToolDisplayWritePendingPreview";
 
 const TOOL_DISPLAY_API_KEY = Symbol.for("pi-tool-display.api.v1");
 const TOOL_DISPLAY_PENDING_DECORATIONS_KEY = Symbol.for("pi-tool-display.pendingDecorations.v1");
-const TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY = Symbol.for("pi-tool-display.registerToolInterceptor.v1");
 const TOOL_DISPLAY_DECORATED_PROPERTIES = [
   "renderCall",
   "renderResult",
@@ -196,17 +195,11 @@ type GlobalWithToolDisplayApi = typeof globalThis & {
   [TOOL_DISPLAY_PENDING_DECORATIONS_KEY]?: PendingToolDisplayDecoration[];
 };
 
-type PiWithRegisterToolInterception = ExtensionAPI & {
-  [TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY]?: {
-    original: ExtensionAPI["registerTool"];
-    wrapped: ExtensionAPI["registerTool"];
-  };
-};
-
 const decoratedToolDescriptors = new WeakMap<RuntimeToolDefinition, ToolPropertyDescriptorSnapshot>();
 const decoratedTools = new Set<RuntimeToolDefinition>();
 
 function registerRuntimeTool(pi: ExtensionAPI, tool: RuntimeToolDefinition): void {
+  // SAFETY: built-in runtime definitions satisfy Pi's ToolDefinition contract at registration.
   pi.registerTool(tool as unknown as ToolDefinition);
 }
 
@@ -250,14 +243,21 @@ function restoreToolPropertyDescriptors(
 }
 
 
-function getToolPrepareArguments(tool: unknown): unknown {
+type ToolPrepareArguments = (...args: unknown[]) => unknown;
+type ClonedToolParameters = object | string | number | boolean | bigint | symbol | null | undefined;
+
+function getToolPrepareArguments(tool: unknown): ToolPrepareArguments | undefined {
   const prepareArguments = toRecord(tool).prepareArguments;
-  return typeof prepareArguments === "function" ? prepareArguments : undefined;
+  return typeof prepareArguments === "function" ? prepareArguments as ToolPrepareArguments : undefined;
 }
 
-function cloneToolParameters(parameters: unknown, seen = new WeakMap<object, unknown>()): unknown {
+function cloneToolParameters(
+  parameters: unknown,
+  seen = new WeakMap<object, ClonedToolParameters>(),
+): ClonedToolParameters {
   if (parameters === null || typeof parameters !== "object") {
-    return parameters;
+    // SAFETY: non-object JSON-schema values are already valid cloned parameter values.
+    return parameters as ClonedToolParameters;
   }
 
   if (seen.has(parameters)) {
@@ -541,6 +541,7 @@ export function getWriteExecutionMeta(
     ? toRecord(carrier[WRITE_EXECUTION_META_STATE_KEY])
     : undefined;
   if (existing && Object.keys(existing).length > 0) {
+    // SAFETY: this private state key is written only with WriteExecutionMeta values.
     return existing as unknown as WriteExecutionMeta;
   }
 
@@ -867,7 +868,7 @@ function appendRtkAndExpandedHints(preview: string, ctx: PreviewHintContext): st
 }
 
 function appendMcpPreviewHints(preview: string, ctx: McpPreviewHintContext): string {
-  const { config, theme, details, lines, options, truncation } = ctx;
+  const { config, theme, truncation } = ctx;
   if (config.showTruncationHints && (truncation.truncated || truncation.fullOutputPath)) {
     const hints: string[] = [];
     if (truncation.truncated) {
@@ -1250,7 +1251,7 @@ function getRuntimeCustomToolOverride(
     return undefined;
   }
 
-  const overrides = toRecord((config as unknown as Record<string, unknown>).customToolOverrides);
+  const overrides = toRecord(config.customToolOverrides);
   return normalizeCustomToolOverrideEntry(overrides[toolName]);
 }
 
@@ -1299,6 +1300,61 @@ function renderCustomToolResult(
     { ...config, mcpOutputMode: outputMode },
     theme,
   );
+}
+
+function createCustomToolDisplayAdapter(
+  toolName: string,
+  override: CustomToolOverrideConfig,
+  getConfig: ConfigGetter,
+): ToolDisplayAdapter {
+  const adapter: ToolDisplayAdapter = {
+    id: `custom:${toolName}`,
+    toolName,
+    kind: override.kind,
+    overrideExistingRenderers: true,
+    preserveCallRenderer: override.preserveCallRenderer === true,
+    renderResult(result, options, theme) {
+      const currentOverride = getRuntimeCustomToolOverride(toolName, getConfig());
+      return renderCustomToolResult(
+        result as ToolRenderInput,
+        options,
+        getConfig(),
+        currentOverride?.outputMode ?? override.outputMode,
+        theme,
+      );
+    },
+  };
+
+  if (!override.preserveCallRenderer) {
+    adapter.renderCall = (args, theme) => {
+      if (override.kind === "mcp") {
+        return formatMcpCallLine("mcp", "MCP Proxy", toRecord(args), theme);
+      }
+      return formatGenericToolCallLine(toolName, args, theme);
+    };
+  }
+
+  return adapter;
+}
+
+function registerConfiguredCustomToolAdapters(
+  api: ToolDisplayApi,
+  getConfig: ConfigGetter,
+): void {
+  const configured = toRecord(getConfig().customToolOverrides);
+  for (const [rawToolName, rawOverride] of Object.entries(configured)) {
+    const toolName = rawToolName.trim();
+    if (!toolName || isBuiltInToolName(toolName)) {
+      continue;
+    }
+
+    const override = normalizeCustomToolOverrideEntry(rawOverride);
+    if (!override?.enabled) {
+      continue;
+    }
+
+    api.registerAdapter(createCustomToolDisplayAdapter(toolName, override, getConfig));
+  }
 }
 
 function getAdapterKind(tool: RuntimeToolDefinition, adapter: ToolDisplayAdapter): ToolDisplayKind {
@@ -1422,7 +1478,7 @@ function renderEditDisplayResult(
   context: ToolRenderContextLike | undefined,
   adapter: ToolDisplayAdapter = {},
   getConfig: ConfigGetter,
- ): unknown {
+ ): Component {
   const lineCount = adapter.getEditLineCount?.(context?.args) ?? getEditLineCount(context?.args);
   const { fallbackText, earlyResult } = handleEditOrWriteResult(result, options, context, theme, lineCount, "editing", "Edit failed.");
   if (earlyResult) {
@@ -1521,6 +1577,26 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
       const preserveCallRenderer = resolvedAdapter.preserveCallRenderer === true;
       const decorated: RuntimeToolDefinition = { ...tool };
 
+      if (kind === "mcp") {
+        const toolName = getTextField(tool, "name") ?? "mcp";
+        const toolDescription = getTextField(tool, "description") ?? "MCP tool";
+        Object.assign(decorated, {
+          label: getTextField(tool, "label") || (toolName === "mcp" ? "MCP Proxy" : `MCP ${toolName}`),
+          description: toolDescription,
+          ...(toolName === "mcp"
+            ? {
+                promptSnippet: MCP_PROXY_PROMPT_SNIPPET,
+                promptGuidelines: [...MCP_PROXY_PROMPT_GUIDELINES],
+              }
+            : {
+                promptSnippet: buildPromptSnippetFromDescription(
+                  toolDescription,
+                  `Call MCP tool '${toolName}'.`,
+                ),
+              }),
+        });
+      }
+
       if (!preserveCallRenderer) {
         if (resolvedAdapter.renderCall && (overrideExisting || typeof decorated.renderCall !== "function")) {
           decorated.renderCall = resolvedAdapter.renderCall;
@@ -1574,6 +1650,7 @@ function installToolDisplayApi(getConfig: ConfigGetter): ToolDisplayApi {
     },
   };
 
+  registerConfiguredCustomToolAdapters(api, getConfig);
   (globalThis as GlobalWithToolDisplayApi)[TOOL_DISPLAY_API_KEY] = api;
   drainPendingToolDisplayDecorations(api);
   return api;
@@ -1917,224 +1994,10 @@ export function registerToolDisplayOverrides(
     });
   });
 
-  const decoratedCustomTools = new WeakSet<RuntimeToolDefinition>();
-
-  const getCustomOverrideForCandidate = (candidate: unknown): {
-    toolName: string;
-    override: CustomToolOverrideConfig;
-  } | undefined => {
-    const toolName = getTextField(candidate, "name");
-    if (!toolName) {
-      return undefined;
-    }
-
-    const override = getRuntimeCustomToolOverride(toolName, getConfig());
-    if (!override?.enabled) {
-      return undefined;
-    }
-
-    return { toolName, override };
-  };
-
-  const decorateCustomToolOverrideCandidate = (candidate: unknown): boolean => {
-    const customOverride = getCustomOverrideForCandidate(candidate);
-    if (!customOverride) {
-      return false;
-    }
-
-    const { toolName, override } = customOverride;
-    const runtimeTool = candidate as RuntimeToolDefinition;
-    if (decoratedCustomTools.has(runtimeTool)) {
-      return true;
-    }
-
-    const adapter: ToolDisplayAdapter = {
-      kind: override.kind,
-      overrideExistingRenderers: true,
-      preserveCallRenderer: override.preserveCallRenderer === true,
-      renderResult(result, options, theme) {
-        return renderCustomToolResult(
-          result as ToolRenderInput,
-          options,
-          getConfig(),
-          override.outputMode,
-          theme,
-        );
-      },
-    };
-    if (!override.preserveCallRenderer) {
-      adapter.renderCall = (args, theme) => {
-        if (override.kind === "mcp") {
-          return formatMcpCallLine("mcp", "MCP Proxy", toRecord(args), theme);
-        }
-        return formatGenericToolCallLine(toolName, args, theme);
-      };
-    }
-
-    if (!applyToolDisplayDecorationInPlace(runtimeTool, toolDisplayApi, adapter)) {
-      return false;
-    }
-
-    decoratedCustomTools.add(runtimeTool);
-    return true;
-  };
-
-  const decoratedMcpTools = new WeakSet<RuntimeToolDefinition>();
-
-  const decorateMcpToolCandidate = (candidate: unknown): void => {
-    if (getCustomOverrideForCandidate(candidate)) {
-      return;
-    }
-
-    if (!isMcpToolCandidate(candidate)) {
-      return;
-    }
-
-    const toolName = getTextField(candidate, "name");
-    const runtimeTool = candidate as RuntimeToolDefinition;
-    if (!toolName || decoratedMcpTools.has(runtimeTool)) {
-      return;
-    }
-
-    const toolRecord = toRecord(candidate);
-    const prepareArgumentsDelegate =
-      typeof toolRecord.prepareArguments === "function"
-        ? (toolRecord.prepareArguments as (args: unknown) => unknown)
-        : undefined;
-    const toolLabel =
-      getTextField(candidate, "label") ||
-      (toolName === "mcp" ? "MCP Proxy" : `MCP ${toolName}`);
-    const toolDescription =
-      getTextField(candidate, "description") || "MCP tool";
-    const parameters = toRecord(toolRecord.parameters);
-
-    const promptMetadata =
-      toolName === "mcp"
-        ? {
-            promptSnippet: MCP_PROXY_PROMPT_SNIPPET,
-            promptGuidelines: [...MCP_PROXY_PROMPT_GUIDELINES],
-          }
-        : {
-            promptSnippet: buildPromptSnippetFromDescription(
-              toolDescription,
-              `Call MCP tool '${toolName}'.`,
-            ),
-          };
-
-    if (!applyToolDisplayDecorationInPlace(
-      runtimeTool,
-      toolDisplayApi,
-      {
-        kind: "mcp",
-        overrideExistingRenderers: true,
-        renderCall(args, theme) {
-          return formatMcpCallLine(toolName, toolLabel, toRecord(args), theme);
-        },
-        renderResult(result, options, theme) {
-          return renderMcpResult(
-            result as ToolRenderInput,
-            options,
-            getConfig(),
-            theme,
-          );
-        },
-      },
-    )) {
-      return;
-    }
-    Object.assign(runtimeTool, {
-      label: toolLabel,
-      description: toolDescription,
-      ...promptMetadata,
-      parameters,
-      prepareArguments: prepareArgumentsDelegate,
-    });
-
-    decoratedMcpTools.add(runtimeTool);
-  };
-
-  const installMcpRegistrationInterceptor = (): void => {
-    const piWithInterception = pi as PiWithRegisterToolInterception;
-    const existingInterception = piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-    if (existingInterception && pi.registerTool === existingInterception.wrapped) {
-      pi.registerTool = existingInterception.original;
-      delete piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-    }
-
-    const originalRegisterTool = pi.registerTool;
-    const wrappedRegisterTool = function registerToolWithMcpDecoration(
-      this: ExtensionAPI,
-      tool: ToolDefinition,
-    ): void {
-      try {
-        if (!decorateCustomToolOverrideCandidate(tool)) {
-          decorateMcpToolCandidate(tool);
-        }
-      } catch (error) {
-        logToolDisplayDebug("Tool display registration decoration failed.", error);
-      }
-      originalRegisterTool.call(this, tool);
-    } as ExtensionAPI["registerTool"];
-
-    pi.registerTool = wrappedRegisterTool;
-    piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY] = {
-      original: originalRegisterTool,
-      wrapped: wrappedRegisterTool,
-    };
-
-    registerCleanup(() => {
-      if (pi.registerTool === wrappedRegisterTool) {
-        pi.registerTool = originalRegisterTool;
-      }
-      const currentInterception = piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-      if (currentInterception?.wrapped === wrappedRegisterTool) {
-        delete piWithInterception[TOOL_DISPLAY_REGISTER_TOOL_INTERCEPTOR_KEY];
-      }
-    });
-  };
-
-  installMcpRegistrationInterceptor();
-
-  const registerMcpToolOverrides = (): void => {
-    const allTools = tryGetAllTools(pi, "MCP tool override discovery failed.");
-    if (!allTools) {
-      return;
-    }
-
-    for (const candidate of allTools) {
-      if (!decorateCustomToolOverrideCandidate(candidate)) {
-        decorateMcpToolCandidate(candidate);
-      }
-    }
-  };
-
-  const mcpDiscoveryRetryTimers = new Set<ReturnType<typeof setTimeout> & { unref?: () => void }>();
-  registerCleanup(() => {
-    for (const timer of mcpDiscoveryRetryTimers) {
-      clearTimeout(timer);
-    }
-    mcpDiscoveryRetryTimers.clear();
-  });
-
-  const scheduleMcpToolOverrideDiscovery = (): void => {
-    for (const delayMs of [25, 75, 150, 300]) {
-      const timer = setTimeout(() => {
-        mcpDiscoveryRetryTimers.delete(timer);
-        registerMcpToolOverrides();
-      }, delayMs) as ReturnType<typeof setTimeout> & { unref?: () => void };
-      mcpDiscoveryRetryTimers.add(timer);
-      timer.unref?.();
-    }
-  };
-
   pi.on("session_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    registerMcpToolOverrides();
-    scheduleMcpToolOverrideDiscovery();
   });
   pi.on("before_agent_start", async () => {
     clearWriteExecutionMeta(writeExecutionMetaByToolCallId);
-    registerMcpToolOverrides();
-    scheduleMcpToolOverrideDiscovery();
   });
 }

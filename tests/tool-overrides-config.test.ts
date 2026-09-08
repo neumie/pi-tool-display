@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { decorateMcpToolForDisplay } from "../tool-display-api-consumer.js";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
 
@@ -171,7 +172,7 @@ test("current local-style config keeps read/search/MCP output modes distinct", a
 	await runLifecycle(eventHandlers);
 
 	const registeredNames = new Set(registeredTools.map((tool) => tool.name));
-	const mcpTool = runtimeTools.find((tool) => tool.name === "mcp");
+	const mcpTool = decorateMcpToolForDisplay(runtimeTools.find((tool) => tool.name === "mcp")!);
 	assert.ok(registeredNames.has("read"));
 	assert.ok(registeredNames.has("grep"));
 	assert.ok(registeredNames.has("find"));
@@ -250,18 +251,20 @@ test("registerToolDisplayOverrides preserves MCP prompt metadata for proxy and d
 	await runLifecycle(eventHandlers);
 
 	const byName = new Map(runtimeTools.map((tool) => [tool.name, tool]));
+	const decoratedMcp = decorateMcpToolForDisplay(byName.get("mcp")!);
+	const decoratedDirect = decorateMcpToolForDisplay(byName.get("exa_web_search_exa")!);
 	assert.equal(
-		byName.get("mcp")?.promptSnippet,
+		decoratedMcp.promptSnippet,
 		"Discover, inspect, and call MCP tools across configured servers",
 	);
-	assert.deepEqual(byName.get("mcp")?.promptGuidelines, [
+	assert.deepEqual(decoratedMcp.promptGuidelines, [
 		"Use mcp for MCP discovery first: search by capability, describe one exact tool, then call it.",
 	]);
 	assert.equal(
-		byName.get("exa_web_search_exa")?.promptSnippet,
+		decoratedDirect.promptSnippet,
 		"Search the web for current information",
 	);
-	assert.equal(byName.get("exa_web_search_exa")?.promptGuidelines, undefined);
+	assert.equal(decoratedDirect.promptGuidelines, undefined);
 });
 
 test("read-only ownership keeps summary line counts confined to read", async () => {
@@ -312,7 +315,7 @@ test("showTruncationHints=false suppresses backend truncation summaries across r
 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
-	const mcpTool = runtimeTools.find((tool) => tool.name === "mcp");
+	const mcpTool = decorateMcpToolForDisplay(runtimeTools.find((tool) => tool.name === "mcp")!);
 
 	assert.equal(
 		renderToolResult(registeredTools.find((tool) => tool.name === "read"), {
@@ -364,7 +367,7 @@ test("showRtkCompactionHints stays independent from showTruncationHints for summ
 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
-	const mcpTool = runtimeTools.find((tool) => tool.name === "mcp");
+	const mcpTool = decorateMcpToolForDisplay(runtimeTools.find((tool) => tool.name === "mcp")!);
 
 	assert.match(
 		renderToolResult(registeredTools.find((tool) => tool.name === "read"), {
@@ -419,12 +422,12 @@ test("showRtkCompactionHints stays independent from showTruncationHints for prev
 
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
-	const mcpTool = runtimeTools.find((tool) => tool.name === "mcp");
+	const mcpTool = decorateMcpToolForDisplay(runtimeTools.find((tool) => tool.name === "mcp")!);
 
 	assert.match(
 		renderToolResult(registeredTools.find((tool) => tool.name === "read"), {
 			text: "alpha\nbeta\n",
-			details: rtkDetails,
+		details: rtkDetails,
 		}),
 		/compacted by RTK: trimmed context • 1\/10 lines kept/,
 	);

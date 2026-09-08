@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createEventBus, createExtensionRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadExtensionFromFactory } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
+import { decorateToolForDisplay } from "../tool-display-api-consumer.js";
 import { normalizeToolDisplayConfig } from "../src/config-store.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
@@ -77,7 +79,13 @@ function createExtensionApiStub(allTools: RuntimeTool[] = [], cloneOnRegister = 
 					description: `Built-in ${name} tool`,
 					sourceInfo: { source: "builtin", path: `<builtin:${name}>` },
 				}));
-			return [...defaultBuiltIns, ...allTools];
+			// Pi's getAllTools() returns metadata copies, not live definitions.
+			return [...defaultBuiltIns, ...allTools].map((tool) => ({
+				name: tool.name,
+				description: tool.description,
+				parameters: tool.parameters,
+				sourceInfo: tool.sourceInfo,
+			}));
 		},
 	} as unknown as ExtensionAPI;
 
@@ -194,8 +202,9 @@ test("enabled generic custom tool override replaces existing extension renderers
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(enabledTool.renderCall?.({ query: "Widget", limit: 5 }, createTheme())), "ide_find_symbol (2 args)");
-	assert.equal(renderToolResult(enabledTool, "alpha\nbeta\ngamma\n"), "↳ 3 lines returned • Ctrl+O to expand");
+	const decoratedEnabledTool = decorateToolForDisplay(enabledTool);
+	assert.equal(renderToText(decoratedEnabledTool.renderCall?.({ query: "Widget", limit: 5 }, createTheme())), "ide_find_symbol (2 args)");
+	assert.equal(renderToolResult(decoratedEnabledTool, "alpha\nbeta\ngamma\n"), "↳ 3 lines returned • Ctrl+O to expand");
 	assert.equal(renderToText(disabledTool.renderCall?.({}, createTheme())), "RAW DISABLED CALL");
 	assert.equal(renderToolResult(disabledTool, "ignored"), "RAW DISABLED RESULT");
 	assert.equal(renderToText(unlistedTool.renderCall?.({}, createTheme())), "RAW UNLISTED CALL");
@@ -224,8 +233,10 @@ test("custom tool override defaults kind to generic unless the user chooses mcp"
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(genericTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "remote_gateway (2 args)");
-	assert.equal(renderToText(mcpTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "MCP call filesystem:read_file (2 args)");
+	const decoratedGenericTool = decorateToolForDisplay(genericTool);
+	const decoratedMcpTool = decorateToolForDisplay(mcpTool);
+	assert.equal(renderToText(decoratedGenericTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "remote_gateway (2 args)");
+	assert.equal(renderToText(decoratedMcpTool.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "MCP call filesystem:read_file (2 args)");
 });
 
 test("custom generic tool override honors per-tool hidden output mode", async () => {
@@ -243,7 +254,8 @@ test("custom generic tool override honors per-tool hidden output mode", async ()
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToolResult(quietTool, "secret\nnoisy\noutput\n"), "");
+	const decoratedQuietTool = decorateToolForDisplay(quietTool);
+	assert.equal(renderToolResult(decoratedQuietTool, "secret\nnoisy\noutput\n"), "");
 });
 
 test("custom tool override can preserve a tool's native call renderer while hiding results", async () => {
@@ -263,8 +275,9 @@ test("custom tool override can preserve a tool's native call renderer while hidi
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(quietShell.renderCall?.({ command: "git status" }, createTheme())), "quiet_shell $ git status");
-	assert.equal(renderToolResult(quietShell, "noisy output"), "");
+	const decoratedQuietShell = decorateToolForDisplay(quietShell);
+	assert.equal(renderToText(decoratedQuietShell.renderCall?.({ command: "git status" }, createTheme())), "quiet_shell $ git status");
+	assert.equal(renderToolResult(decoratedQuietShell, "noisy output"), "");
 });
 
 test("custom MCP tool override preserves a native call renderer while hiding results", async () => {
@@ -284,8 +297,9 @@ test("custom MCP tool override preserves a native call renderer while hiding res
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(nativeMcp.renderCall?.({}, createTheme())), "NATIVE MCP CALL");
-	assert.equal(renderToolResult(nativeMcp, "noisy output"), "");
+	const decoratedNativeMcp = decorateToolForDisplay(nativeMcp);
+	assert.equal(renderToText(decoratedNativeMcp.renderCall?.({}, createTheme())), "NATIVE MCP CALL");
+	assert.equal(renderToolResult(decoratedNativeMcp, "noisy output"), "");
 });
 
 test("custom tool overrides ignore missing tools instead of registering phantom tools", async () => {
@@ -342,12 +356,13 @@ test("generic custom tool renderCall handles absent, non-object, and nested argu
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(argumentProbe.renderCall?.(undefined, createTheme())), "argument_probe (no args)");
-	assert.equal(renderToText(argumentProbe.renderCall?.(null, createTheme())), "argument_probe (no args)");
-	assert.equal(renderToText(argumentProbe.renderCall?.("raw string args", createTheme())), "argument_probe (no args)");
-	assert.equal(renderToText(argumentProbe.renderCall?.(["array", "args"], createTheme())), "argument_probe (no args)");
+	const decoratedArgumentProbe = decorateToolForDisplay(argumentProbe);
+	assert.equal(renderToText(decoratedArgumentProbe.renderCall?.(undefined, createTheme())), "argument_probe (no args)");
+	assert.equal(renderToText(decoratedArgumentProbe.renderCall?.(null, createTheme())), "argument_probe (no args)");
+	assert.equal(renderToText(decoratedArgumentProbe.renderCall?.("raw string args", createTheme())), "argument_probe (no args)");
+	assert.equal(renderToText(decoratedArgumentProbe.renderCall?.(["array", "args"], createTheme())), "argument_probe (no args)");
 	assert.equal(
-		renderToText(argumentProbe.renderCall?.({ path: "src/index.ts", options: { recursive: true }, tags: ["a", "b"] }, createTheme())),
+		renderToText(decoratedArgumentProbe.renderCall?.({ path: "src/index.ts", options: { recursive: true }, tags: ["a", "b"] }, createTheme())),
 		"argument_probe (3 args)",
 	);
 });
@@ -368,20 +383,21 @@ test("generic custom tool preview mode supports collapsed previews, expanded pre
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
+	const decoratedPreviewTool = decorateToolForDisplay(previewTool);
 	assert.equal(
-		renderToolResult(previewTool, "alpha\nbeta\ngamma\ndelta\n"),
+		renderToolResult(decoratedPreviewTool, "alpha\nbeta\ngamma\ndelta\n"),
 		"alpha\nbeta\n... (2 more lines • Ctrl+O to expand)",
 	);
 	assert.equal(
-		renderToolResult(previewTool, "alpha\nbeta\ngamma\ndelta\n", { expanded: true }),
+		renderToolResult(decoratedPreviewTool, "alpha\nbeta\ngamma\ndelta\n", { expanded: true }),
 		"alpha\nbeta\ngamma\ndelta",
 	);
-	assert.equal(renderToolResult(previewTool, "still running", { isPartial: true }), "running...");
+	assert.equal(renderToolResult(decoratedPreviewTool, "still running", { isPartial: true }), "running...");
 	assert.equal(
-		renderToolRawResult(previewTool, { content: [{ type: "image", data: "ignored" }], details: {} }),
+		renderToolRawResult(decoratedPreviewTool, { content: [{ type: "image", data: "ignored" }], details: {} }),
 		"↳ (no output)",
 	);
-	assert.equal(renderToolRawResult(previewTool, { details: {} }), "↳ (no output)");
+	assert.equal(renderToolRawResult(decoratedPreviewTool, { details: {} }), "↳ (no output)");
 });
 
 test("explicit mcp custom tool override interprets MCP proxy argument variants", async () => {
@@ -399,12 +415,13 @@ test("explicit mcp custom tool override interprets MCP proxy argument variants",
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(renderToText(customMcpProxy.renderCall?.({}, createTheme())), "MCP status (no args)");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ connect: "filesystem" }, createTheme())), "MCP connect filesystem (1 arg)");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ describe: "read_file", server: "filesystem" }, createTheme())), "MCP describe read_file @filesystem (2 args)");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ search: "browser", server: "exa" }, createTheme())), "MCP search \"browser\" @exa (2 args)");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ server: "filesystem" }, createTheme())), "MCP tools filesystem (1 arg)");
-	assert.equal(renderToText(customMcpProxy.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "MCP call filesystem:read_file (2 args)");
+	const decoratedCustomMcpProxy = decorateToolForDisplay(customMcpProxy);
+	assert.equal(renderToText(decoratedCustomMcpProxy.renderCall?.({}, createTheme())), "MCP status (no args)");
+	assert.equal(renderToText(decoratedCustomMcpProxy.renderCall?.({ connect: "filesystem" }, createTheme())), "MCP connect filesystem (1 arg)");
+	assert.equal(renderToText(decoratedCustomMcpProxy.renderCall?.({ describe: "read_file", server: "filesystem" }, createTheme())), "MCP describe read_file @filesystem (2 args)");
+	assert.equal(renderToText(decoratedCustomMcpProxy.renderCall?.({ search: "browser", server: "exa" }, createTheme())), "MCP search \"browser\" @exa (2 args)");
+	assert.equal(renderToText(decoratedCustomMcpProxy.renderCall?.({ server: "filesystem" }, createTheme())), "MCP tools filesystem (1 arg)");
+	assert.equal(renderToText(decoratedCustomMcpProxy.renderCall?.({ tool: "read_file", server: "filesystem" }, createTheme())), "MCP call filesystem:read_file (2 args)");
 });
 
 test("custom tool override preserves execution contract, parameters, and prepareArguments", async () => {
@@ -426,14 +443,15 @@ test("custom tool override preserves execution contract, parameters, and prepare
 	registerToolDisplayOverrides(api, () => config);
 	await runLifecycle(eventHandlers);
 
-	assert.equal(contractTool.execute, execute);
-	assert.equal(contractTool.prepareArguments, prepareArguments);
-	assert.equal(contractTool.parameters, parameters);
-	assert.equal(typeof contractTool.renderCall, "function");
-	assert.equal(typeof contractTool.renderResult, "function");
+	const decoratedContractTool = decorateToolForDisplay(contractTool);
+	assert.equal(decoratedContractTool.execute, execute);
+	assert.equal(decoratedContractTool.prepareArguments, prepareArguments);
+	assert.equal(decoratedContractTool.parameters, parameters);
+	assert.equal(typeof decoratedContractTool.renderCall, "function");
+	assert.equal(typeof decoratedContractTool.renderResult, "function");
 });
 
-test("custom tool registered after lifecycle is decorated when it is explicitly opted in", async () => {
+test("custom tool is decorated when the extension opts in through the consumer API", async () => {
 	const config = buildConfigWithCustomOverrides({
 		late_custom_tool: { enabled: true, outputMode: "summary" },
 	});
@@ -448,14 +466,16 @@ test("custom tool registered after lifecycle is decorated when it is explicitly 
 		parameters: {},
 		execute: () => {},
 	};
-	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(lateTool);
+	const decoratedLateTool = decorateToolForDisplay(lateTool);
+	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(decoratedLateTool);
 
-	assert.equal(typeof lateTool.renderCall, "function");
-	assert.equal(typeof lateTool.renderResult, "function");
-	assert.equal(renderToText(lateTool.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg)");
+	assert.equal(typeof lateTool.renderCall, "undefined");
+	assert.equal(typeof decoratedLateTool.renderCall, "function");
+	assert.equal(typeof decoratedLateTool.renderResult, "function");
+	assert.equal(renderToText(decoratedLateTool.renderCall?.({ query: "late" }, createTheme())), "late_custom_tool (1 arg)");
 });
 
-test("decorates a late custom tool before Pi snapshots its registration", async () => {
+test("consumer decoration survives Pi registration snapshots", async () => {
 	const config = buildConfigWithCustomOverrides({
 		hypa_shell: { enabled: true, outputMode: "hidden" },
 	});
@@ -472,7 +492,8 @@ test("decorates a late custom tool before Pi snapshots its registration", async 
 		renderCall: () => ({ render: () => ["RAW HYPA CALL"] }),
 		renderResult: () => ({ render: () => ["RAW HYPA RESULT"] }),
 	};
-	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(hypaShell);
+	const decoratedHypaShell = decorateToolForDisplay(hypaShell);
+	(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(decoratedHypaShell);
 
 	const registeredHypaShell = registeredTools.find((tool) => tool.name === "hypa_shell");
 	assert.ok(registeredHypaShell);
@@ -480,7 +501,7 @@ test("decorates a late custom tool before Pi snapshots its registration", async 
 	assert.equal(renderToolResult(registeredHypaShell, "large noisy output"), "");
 });
 
-test("decorates distinct late tool objects with the same configured name before each snapshot", async () => {
+test("consumer decorates distinct tool objects with the same configured name", async () => {
 	const config = buildConfigWithCustomOverrides({
 		hypa_shell: { enabled: true, outputMode: "hidden" },
 	});
@@ -490,14 +511,15 @@ test("decorates distinct late tool objects with the same configured name before 
 	await runLifecycle(eventHandlers);
 
 	for (const nativeCall of ["FIRST NATIVE CALL", "SECOND NATIVE CALL"]) {
-		(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool({
+		const tool: RuntimeTool = {
 			name: "hypa_shell",
 			description: "Run shell commands through Hypa compression.",
 			parameters: {},
 			execute: () => {},
 			renderCall: () => ({ render: () => [nativeCall] }),
 			renderResult: () => ({ render: () => ["RAW HYPA RESULT"] }),
-		});
+		};
+		(api as unknown as { registerTool(tool: RuntimeTool): void }).registerTool(decorateToolForDisplay(tool));
 	}
 
 	const registeredHypaTools = registeredTools.filter((tool) => tool.name === "hypa_shell");
@@ -506,4 +528,89 @@ test("decorates distinct late tool objects with the same configured name before 
 		assert.equal(renderToText(registeredTool.renderCall?.({ command: "git status" }, createTheme())), "hypa_shell (1 arg)");
 		assert.equal(renderToolResult(registeredTool, "large noisy output"), "");
 	}
+});
+
+test("separate real Pi extension APIs require public opt-in before registration", async () => {
+	const runtime = createExtensionRuntime();
+	const eventBus = createEventBus();
+	const config = buildConfigWithCustomOverrides({
+		real_consumer_tool: { enabled: true, outputMode: "hidden" },
+	});
+	let displayApi: ExtensionAPI | undefined;
+	let consumerApi: ExtensionAPI | undefined;
+	const cwd = process.cwd();
+
+	const displayExtension = await loadExtensionFromFactory(
+		(pi) => {
+			displayApi = pi;
+			registerToolDisplayOverrides(pi, () => config);
+		},
+		cwd,
+		eventBus,
+		runtime,
+		"<pi-tool-display>",
+	);
+
+	const cooperativeTool: RuntimeTool = {
+		name: "real_consumer_tool",
+		description: "Tool decorated by a separate extension through the public API.",
+		parameters: {},
+		execute: () => {},
+		renderCall: () => ({ render: () => ["RAW COOPERATIVE CALL"] }),
+		renderResult: () => ({ render: () => ["RAW COOPERATIVE RESULT"] }),
+	};
+	const consumerExtension = await loadExtensionFromFactory(
+		(pi) => {
+			consumerApi = pi;
+			pi.registerTool(decorateToolForDisplay(cooperativeTool) as never);
+		},
+		cwd,
+		eventBus,
+		runtime,
+		"<consumer-extension>",
+	);
+
+	const noncooperatingTool: RuntimeTool = {
+		name: "real_noncooperating_tool",
+		description: "Tool that does not call the display consumer API.",
+		parameters: {},
+		execute: () => {},
+		renderCall: () => ({ render: () => ["RAW NONCOOPERATING CALL"] }),
+		renderResult: () => ({ render: () => ["RAW NONCOOPERATING RESULT"] }),
+	};
+	const noncooperatingExtension = await loadExtensionFromFactory(
+		(pi) => {
+			pi.registerTool(noncooperatingTool as never);
+		},
+		cwd,
+		eventBus,
+		runtime,
+		"<noncooperating-extension>",
+	);
+
+	assert.ok(displayApi);
+	assert.ok(consumerApi);
+	assert.notEqual(displayApi, consumerApi);
+	assert.equal(displayExtension.tools.size > 0, true);
+	assert.equal(consumerExtension.tools.size, 1);
+	assert.equal(noncooperatingExtension.tools.size, 1);
+
+	const registeredCooperativeTool = consumerExtension.tools.get("real_consumer_tool")?.definition as unknown as RuntimeTool;
+	assert.ok(registeredCooperativeTool);
+	assert.equal(renderToText(registeredCooperativeTool.renderCall?.({}, createTheme())), "real_consumer_tool (no args)");
+	assert.equal(renderToolResult(registeredCooperativeTool, "noisy output"), "");
+	assert.equal(renderToText(noncooperatingTool.renderCall?.({}, createTheme())), "RAW NONCOOPERATING CALL");
+
+	// Model the SDK's getAllTools() metadata-only boundary: renderers are not
+	// available for display to mutate after another extension registers them.
+	runtime.getAllTools = () => [
+		{
+			name: "real_consumer_tool",
+			description: cooperativeTool.description,
+			parameters: cooperativeTool.parameters,
+			sourceInfo: { source: "local", path: "<consumer-extension>" },
+		},
+	] as never;
+	const metadata = consumerApi.getAllTools() as unknown as Array<Record<string, unknown>>;
+	assert.equal("renderCall" in (metadata[0] ?? {}), false);
 });

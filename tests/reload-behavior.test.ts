@@ -7,12 +7,12 @@ import {
   UserMessageComponent,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { decorateMcpToolForDisplay } from "../tool-display-api-consumer.js";
 import { Text } from "@earendil-works/pi-tui";
 import toolDisplayExtension from "../src/index.ts";
 import { registerToolDisplayOverrides } from "../src/tool-overrides.ts";
 import { renderBashCall } from "../src/bash-display.ts";
 import { registerThinkingLabeling } from "../src/thinking-label.ts";
-import registerNativeUserMessageBox from "../src/user-message-box-native.ts";
 import { createToolDisplayDebugLogger } from "../src/debug-logger.ts";
 import { loadToolDisplayConfig, saveToolDisplayConfig } from "../src/config-store.ts";
 import { DEFAULT_TOOL_DISPLAY_CONFIG, type ToolDisplayConfig } from "../src/types.ts";
@@ -370,7 +370,7 @@ test("3: multiple consecutive bash render calls do not create duplicate timers",
 // 4. MCP override cleanup
 // ---------------------------------------------------------------------------
 
-test("4: MCP tools are decorated on first registration (via session_start event)", () => {
+test("4: noncooperating MCP definitions remain unchanged after session_start", () => {
   // isMcpToolCandidate checks for name==="mcp" or description matching \bmcp\b
   const mcpTool: Record<string, unknown> = {
     name: "weather",
@@ -403,17 +403,14 @@ test("4: MCP tools are decorated on first registration (via session_start event)
     eventHandlers.session_start();
   }
 
-  assert.ok(
-    typeof mcpTool.renderCall === "function",
-    "MCP tool receives renderCall after session_start",
-  );
-  assert.ok(
-    typeof mcpTool.renderResult === "function",
-    "MCP tool receives renderResult after session_start",
-  );
+  assert.equal(typeof mcpTool.renderCall, "undefined");
+  assert.equal(typeof mcpTool.renderResult, "undefined");
+  const decorated = decorateMcpToolForDisplay(mcpTool);
+  assert.equal(typeof decorated.renderCall, "function");
+  assert.equal(typeof decorated.renderResult, "function");
 });
 
-test("4: MCP tools get re-decorated on reload (new wrappedMcpToolNames set)", () => {
+test("4: public MCP decoration remains available after reload", () => {
   // isMcpToolCandidate checks for name==="mcp" or description matching \bmcp\b
   const mcpTool: Record<string, unknown> = {
     name: "weather",
@@ -427,23 +424,16 @@ test("4: MCP tools get re-decorated on reload (new wrappedMcpToolNames set)", ()
   registerToolDisplayOverrides(api1, () => DEFAULT_TOOL_DISPLAY_CONFIG);
   handlers1.session_start?.();
 
-  assert.ok(
-    typeof mcpTool.renderCall === "function",
-    "MCP tool receives renderCall after first registration + session_start",
-  );
-  const firstRenderCall = mcpTool.renderCall;
+  const firstDecorated = decorateMcpToolForDisplay(mcpTool);
+  assert.equal(typeof firstDecorated.renderCall, "function");
 
   // Reload: create a NEW stub (new getAllTools result) and trigger session_start
   const { api: api2, eventHandlers: handlers2 } = createExtensionApiStub([mcpTool]);
   registerToolDisplayOverrides(api2, () => DEFAULT_TOOL_DISPLAY_CONFIG);
   handlers2.session_start?.();
 
-  const secondRenderCall = mcpTool.renderCall;
-
-  assert.ok(
-    typeof secondRenderCall === "function",
-    "MCP tool has renderCall after reload",
-  );
+  const secondDecorated = decorateMcpToolForDisplay(mcpTool);
+  assert.equal(typeof secondDecorated.renderCall, "function");
 });
 
 // ---------------------------------------------------------------------------
@@ -454,9 +444,6 @@ test("5: UserMessageComponent prototype is patched on first call and safe on rel
   const { api } = createApiStub();
 
   const proto = UserMessageComponent.prototype as PatchableUserMessagePrototype;
-
-  // Before any patching
-  const originalRenderBefore = proto.__piUserMessageOriginalRender;
 
   // First call patches it
   toolDisplayExtension(api);
@@ -717,7 +704,6 @@ test("9: calling toolDisplayExtension three times (double reload) is safe", () =
 
   // First call
   toolDisplayExtension(api);
-  const afterFirst = { tools: capturedTools.length, cmds: capturedCommands.length };
 
   // First reload
   toolDisplayExtension(api);
@@ -887,7 +873,7 @@ test("10: active bash spinner timer is cleaned up when execution transitions fro
 // 11. State isolation between reloads
 // ---------------------------------------------------------------------------
 
-test("11: registerToolDisplayOverrides creates fresh state on each call", () => {
+test("11: registerToolDisplayOverrides and the public MCP API create fresh state on each call", () => {
   // Each call to registerToolDisplayOverrides creates new:
   // - builtInToolCache (cleared)
   // - registeredBuiltInToolOverrides Set
@@ -908,27 +894,16 @@ test("11: registerToolDisplayOverrides creates fresh state on each call", () => 
   // Trigger session_start to invoke registerMcpToolOverrides
   stub1.eventHandlers.session_start?.();
 
-  assert.ok(
-    typeof mcpTool.renderCall === "function",
-    "MCP tool decorated in first registration",
-  );
+  const firstDecorated = decorateMcpToolForDisplay(mcpTool);
+  assert.equal(typeof firstDecorated.renderCall, "function");
 
-  const firstDeco = mcpTool.renderCall;
-
-  // Second call - fresh wrappedMcpToolNames set means re-decoration
+  // Second call - the public API returns a fresh decoration
   const stub2 = createExtensionApiStub([mcpTool]);
   registerToolDisplayOverrides(stub2.api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
   stub2.eventHandlers.session_start?.();
 
-  // The MCP tool is the same object, so it should have been re-decorated
-  // Even though the first call already decorated it, the second call's new
-  // wrappedMcpToolNames set doesn't know about it.
-  // The decoration may produce the same function or a new one; either is fine
-  // as long as renderCall is still a function.
-  assert.ok(
-    typeof mcpTool.renderCall === "function",
-    "MCP tool still has renderCall after second registration",
-  );
+  const secondDecorated = decorateMcpToolForDisplay(mcpTool);
+  assert.equal(typeof secondDecorated.renderCall, "function");
 });
 
 test("11: each tool override call clones parameters independently", () => {
@@ -936,10 +911,6 @@ test("11: each tool override call clones parameters independently", () => {
 
   // First call
   registerToolDisplayOverrides(api, () => DEFAULT_TOOL_DISPLAY_CONFIG);
-  const firstParamRefs = new Map(
-    registeredTools.map((t) => [t.name, t.parameters]),
-  );
-
   // Trigger deferred registration
   eventHandlers.before_agent_start?.();
 

@@ -169,7 +169,8 @@ export function readWorkspaceUtf8File(cwd: string, rawPath: string): FileReadRes
   let descriptor: number | undefined;
   try {
     const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
-    descriptor = openSync(safePath.resolvedPath, constants.O_RDONLY | noFollow);
+    const nonBlocking = process.platform === "win32" ? 0 : constants.O_NONBLOCK;
+    descriptor = openSync(safePath.resolvedPath, constants.O_RDONLY | noFollow | nonBlocking);
     const stats = fstatSync(descriptor);
     if (!stats.isFile()) {
       return {
